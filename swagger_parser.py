@@ -450,6 +450,8 @@ class SwaggerParserTab(ITab):
         history_table = JTable(table_model)
         history_scroll_pane = JScrollPane(history_table)
 
+        history_table.addMouseListener(TableMenuClickListener(self, history_table))
+
         screen_size = Toolkit.getDefaultToolkit().getScreenSize()
         screen_height = screen_size.getHeight()
         screen_width = screen_size.getWidth()
