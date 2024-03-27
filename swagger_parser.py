@@ -4,19 +4,21 @@ from burp import IContextMenuFactory
 from java.util import ArrayList
 from javax.swing import JMenuItem
 from java.awt.event import MouseAdapter, MouseEvent
-
-from javax.swing import (GroupLayout, JPanel, JComboBox, JCheckBox, JTextField, JLabel, JButton, JScrollPane, JTable, JPopupMenu, JTextPane)
-from java.awt import (BorderLayout,Dimension, Toolkit)
+from javax.swing import (JTabbedPane, DefaultComboBoxModel, BoxLayout,GroupLayout, JPanel, JComboBox, JCheckBox, JTextField, JTextArea, JLabel, JButton, JScrollPane, JTable, JPopupMenu, JTextPane, JFrame)
+from java.awt import (Insets, BorderLayout, GridBagLayout, GridBagConstraints, Dimension, Toolkit, FlowLayout, GridLayout)
 from javax import swing
 from burp import ITab
 from javax.swing.table import (DefaultTableModel)
+import javax.swing.KeyStroke as KeyStroke
+import java.awt.event.KeyEvent as KeyEvent
+import javax.swing.AbstractAction as AbstractAction
+import java.awt.event.ComponentAdapter as ComponentAdapter
 
 import threading
 import json
 import re
 import random
 import string
-
 
 class SwaggerParser:
     def __init__(self, swagger_url, headers):
@@ -363,6 +365,28 @@ class SwaggerParser:
         return _protocol + _url
 
 
+main_panel = None
+header_text_editor = None
+request_detail_text_editor = None
+output_text_editor = None
+history_table = None
+popup_menu = None
+extracted_requests = []
+output_scroll_pane = None
+parsable_docs_combobox = None
+parsable_docs = {}
+popup_frame = None
+remove_confirmation_popup_frame = None
+global_parent_self = None
+tabbedPane = None
+tabbedPane2 = None
+
+
+def isValidSwaggerDoc(doc):
+    doc = str(doc)
+    return (doc.startswith("http://") or doc.startswith("https://")) and (
+                doc.endswith("json") or "api-docs" in doc or doc.endswith("swagger-ui-init.js"))
+
 class MenuClickListener(MouseAdapter):
     def __init__(self, extender, invocation):
         self._extender = extender
@@ -371,6 +395,28 @@ class MenuClickListener(MouseAdapter):
     def mouseReleased(self, e):
         self._extender.menuItemClicked(self._invocation)
 
+last_table_selections = []
+
+
+class MoveAction(AbstractAction):
+    def __init__(self, table, direction):
+        self.table = table
+        self.direction = direction
+
+    def actionPerformed(self, e):
+        row = self.table.getSelectedRow() + self.direction
+
+        if row >= 0 and row < self.table.getRowCount():
+            self.table.setRowSelectionInterval(row, row)
+
+            request_item = extracted_requests[row]
+
+            http_request = request_item["http_request"]
+
+            request_detail_text_editor.setText(global_parent_self._helpers.bytesToString(http_request))
+
+            tabbedPane.setSelectedIndex(1)
+
 
 class TableMenuClickListener(MouseAdapter):
     def __init__(self, extender, invocation):
@@ -378,27 +424,141 @@ class TableMenuClickListener(MouseAdapter):
         self._invocation = invocation
 
     def mouseReleased(self, e):
-        #self._extender.menuItemClicked(self._invocation)
         global popup_menu
+        global history_table
+        global header_text_editor
+        global last_table_selections
+        global extracted_requests
+        global global_parent_self
+        global request_detail_text_editor
+        global tabbedPane
 
         if e.getButton() == MouseEvent.BUTTON3:
             popup_menu.show(e.getComponent(), e.getX(), e.getY())
 
-header_text_editor = None
-output_text_editor = None
-history_table = None
-popup_menu = None
-extracted_requests = []
-output_scroll_pane = None
-parsable_docs_combobox = None
-parsable_docs = {}
+        if e.getButton() == MouseEvent.BUTTON1:
+            current_selections = list(history_table.getSelectedRows())
+
+            temp_selection = list(set(current_selections) - set(last_table_selections))
+            single_selection = -1
+
+            if len(temp_selection) > 0:
+                single_selection = temp_selection[0]
+
+            if single_selection != -1:
+
+                request_item = extracted_requests[single_selection]
+
+                http_request = request_item["http_request"]
+
+                request_detail_text_editor.setText(global_parent_self._helpers.bytesToString(http_request))
+
+                tabbedPane.setSelectedIndex(1)
+
+            last_table_selections = current_selections
+
+
+
+class RemoveConfirmationPopup(swing.JPanel):
+    parent_self = None
+
+    def __init__(self, remove_all, parent):
+        super(RemoveConfirmationPopup, self).__init__()
+
+        self.parent_self = parent
+        popup_title = "Are you sure you want to remove Selected Items?"
+
+        if remove_all:
+            popup_title = "Are you sure you want to remove All Items?"
+
+        layout = GridBagLayout()
+        self.setLayout(layout)
+        gbc = GridBagConstraints()
+
+        label = swing.JLabel(popup_title)
+        gbc.gridx = 0
+        gbc.gridy = 0
+        gbc.gridwidth = 2
+        gbc.insets = Insets(5, 5, 5, 5)
+        self.add(label, gbc)
+
+        blank_panel = swing.JPanel()
+        blank_panel.setPreferredSize(Dimension(1, 100))
+        gbc.gridx = 0
+        gbc.gridy = 1
+        gbc.gridwidth = 2
+        self.add(blank_panel, gbc)
+
+        button_panel = swing.JPanel()
+        button_panel.setLayout(GridLayout(1, 2, 10, 0))
+
+        no_button = swing.JButton("No", actionPerformed=self.close_popup)
+        no_button.setPreferredSize(Dimension(60, 25))
+        button_panel.add(no_button)
+
+        if remove_all:
+            yes_button = swing.JButton("Yes", actionPerformed=self.confirm_all_removal)
+            yes_button.setPreferredSize(Dimension(60, 25))
+            button_panel.add(yes_button)
+        else:
+            yes_button = swing.JButton("Yes", actionPerformed=self.confirm_removal)
+            yes_button.setPreferredSize(Dimension(60, 25))
+            button_panel.add(yes_button)
+
+
+
+        gbc.gridx = 0
+        gbc.gridy = 2
+        gbc.gridwidth = 2
+        gbc.insets = Insets(0, 0, 10, 0)
+        self.add(button_panel, gbc)
+
+    def close_popup(self, event):
+        frame = swing.SwingUtilities.getWindowAncestor(self)
+        frame.dispose()
+
+    def confirm_all_removal(self, event):
+        self.parent_self.clearTable(event)
+        self.close_popup(None)
+
+    def confirm_removal(self, event):
+        self.parent_self.removeSelectedItems(event)
+        self.close_popup(None)
+
+
+class ResizeListener(ComponentAdapter):
+    def componentResized(self, e):
+
+        if main_panel is not None:
+            screen_size = main_panel.getSize()
+            screen_height = screen_size.height
+            screen_width = screen_size.width
+
+            output_components_max_height = int(screen_height / 3)
+            output_components_max_width = int(screen_width / 2)
+
+            tabbedPane.setMinimumSize(
+                Dimension(output_components_max_width - 10, output_components_max_height))
+
+            tabbedPane.setMaximumSize(
+                Dimension(output_components_max_width - 10, output_components_max_height))
+
+            tabbedPane2.setMinimumSize(
+                Dimension(output_components_max_width - 10, output_components_max_height - 2))
+
+            tabbedPane2.setMaximumSize(
+                Dimension(output_components_max_width - 10, output_components_max_height - 2))
+
 
 class SwaggerParserTab(ITab):
     parent_self = None
 
     def __init__(self, callbacks, parent):
+        global global_parent_self
+
         self._callbacks = callbacks
         self.parent_self = parent
+        global_parent_self = parent
 
     class NonEditableTableModel(DefaultTableModel):
         def isCellEditable(self, row, column):
@@ -406,6 +566,252 @@ class SwaggerParserTab(ITab):
 
     def getTabCaption(self):
         return "Swagger Parser"
+
+    def stringToBytes(self, text, encoding='utf-8'):
+        return text.encode(encoding)
+
+    def bytesToString(self, _bytes):
+
+        char_arr = []
+
+        for b in _bytes:
+            if b < 257 and b > -1:
+                char_arr.append(chr(b))
+
+        return "".join(char_arr)
+
+    def sendHttpRequest(self, url):
+        global parsable_docs
+
+        url = str(url)
+
+        protocol = "https"
+        port = 443
+
+        if not url.startswith(protocol):
+            protocol = "http"
+            port = 80
+
+        hostname = url.replace(protocol + "://", "").split("/")[0]
+
+        if ":" in hostname:
+            temp_hostname_split = hostname.split(":")
+            hostname = temp_hostname_split[0]
+            port = int(temp_hostname_split[1])
+
+
+        if port in [80, 443]:
+            temp_url_1 = url.replace("://" + hostname + "/", "://" + hostname + ":" + str(port) + "/")
+            temp_url_2 = url.replace("://" + hostname + ":" + str(port) + "/", "://" + hostname + "/")
+
+            if temp_url_1 != temp_url_2 and temp_url_1 in list(parsable_docs.keys()) and temp_url_2 in list(parsable_docs.keys()):
+                    del parsable_docs[temp_url_1]
+                    url = temp_url_2
+
+
+
+        swagger_doc_path = url.replace(protocol + "://" + hostname, "")
+
+        http_service = self.parent_self._helpers.buildHttpService(hostname, port, protocol)
+
+        request = "GET " + swagger_doc_path + " HTTP/2\r\nHost: " + hostname + "\r\n\r\n"
+
+
+        def make_request():
+            global parsable_docs
+
+            response = self.parent_self._callbacks.makeHttpRequest(http_service, request.encode())
+
+            ref_url = str(response.getUrl())
+
+            parsable_docs[ref_url] = response
+
+
+        thread = threading.Thread(target=make_request)
+        thread.start()
+
+        return
+
+    def add_component(self, component, gridx, gridy, anchor):
+        gbc = GridBagConstraints()
+        gbc.gridx = gridx
+        gbc.gridy = gridy
+        gbc.anchor = anchor
+        self.right_panel.add(component, gbc)
+
+
+    def openRemoveConfirmationPopup(self, event, remove_all):
+        global remove_confirmation_popup_frame
+
+        if remove_confirmation_popup_frame is not None:
+            remove_confirmation_popup_frame.dispose()
+
+        frame_width = 300
+
+        if not remove_all:
+            frame_width = 320
+
+        remove_confirmation_popup_frame = JFrame("Confirm", size=(frame_width, 125))
+        remove_confirmation_popup_frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE)
+        remove_confirmation_popup_frame.setLayout(BorderLayout())
+        remove_confirmation_popup_frame.setResizable(False)
+
+        remove_confirmation_popup = RemoveConfirmationPopup(remove_all, self)
+        remove_confirmation_popup_frame.add(remove_confirmation_popup)
+
+        remove_confirmation_popup_frame.setLocationRelativeTo(None)
+        remove_confirmation_popup_frame.setVisible(True)
+
+    def addNewUrl(self, event):
+        global popup_frame
+
+        if popup_frame is not None:
+            popup_frame.dispose()
+
+        popup_frame = JFrame("Add New Swagger Document", size=(612, 300))
+        popup_frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE)
+        popup_frame.setLayout(BorderLayout())
+        popup_frame.setResizable(False)
+
+        self.main_panel = JPanel()
+        self.main_panel.setLayout(BorderLayout())
+        self.main_panel.setPreferredSize(Dimension(608, 300))
+
+        self.left_panel = JPanel()
+        self.left_panel.setLayout(BorderLayout())
+
+        self.text_field = JTextField(20)
+        self.text_field.setPreferredSize(Dimension(500, 25))
+
+        self.table_model = self.NonEditableTableModel()
+        self.table_model.addColumn("URL")
+
+        temp_combobox_items = self.getComboboxItems()
+
+        if len(temp_combobox_items) > 0:
+            for item in temp_combobox_items:
+                self.table_model.addRow([item])
+
+        self.table = JTable(self.table_model)
+        self.table.setPreferredScrollableViewportSize(Dimension(500, 150))
+        self.table.setTableHeader(None)
+
+        self.scroll_pane = JScrollPane(self.table)
+
+        self.left_panel.add(self.text_field, BorderLayout.NORTH)
+        self.left_panel.add(self.scroll_pane, BorderLayout.CENTER)
+
+        self.right_panel = JPanel()
+        self.right_panel.setPreferredSize(Dimension(110, 300))
+        self.right_panel.setLayout(GridBagLayout())
+
+        self.button1 = JButton("Add")
+        self.button2 = JButton("Remove")
+        self.button3 = JButton("Remove All")
+
+        self.empty_panel = JPanel()
+        self.empty_panel.setPreferredSize(Dimension(10, 176))
+
+        button_size = Dimension(100, 25)
+        self.button1.setPreferredSize(button_size)
+        self.button2.setPreferredSize(button_size)
+        self.button3.setPreferredSize(button_size)
+
+        gbc = GridBagConstraints()
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        gbc.anchor = GridBagConstraints.NORTHWEST
+
+        gbc.insets = Insets(2, 0, 2, 0)
+        gbc.gridx = 0
+        gbc.gridy = 0
+        self.right_panel.add(self.button1, gbc)
+
+        gbc.gridy = 1
+        self.right_panel.add(self.button2, gbc)
+
+        gbc.gridy = 2
+        self.right_panel.add(self.button3, gbc)
+
+        gbc.gridy = 3
+        self.right_panel.add(self.empty_panel, gbc)
+
+        self.button1.addActionListener(self.addUrlToTable)
+        self.button2.addActionListener(lambda event: self.openRemoveConfirmationPopup(event, False))
+        self.button3.addActionListener(lambda event: self.openRemoveConfirmationPopup(event, True))
+
+        self.main_panel.add(self.left_panel, BorderLayout.WEST)
+        self.main_panel.add(self.right_panel, BorderLayout.EAST)
+
+        popup_frame.add(self.main_panel, BorderLayout.CENTER)
+
+        popup_frame.setLocationRelativeTo(None)
+        popup_frame.setVisible(True)
+
+
+    def syncTables(self):
+        global parsable_docs
+        global parsable_docs_combobox
+
+        model = self.table.getModel()
+        model.setRowCount(0)
+
+        parsable_docs_combobox.setModel(DefaultComboBoxModel([]))
+
+        for doc_item in sorted(list(dict(parsable_docs).keys())):
+            model.addRow([doc_item])
+            parsable_docs_combobox.addItem(doc_item)
+
+    def addToParcableDocsDict(self, new_item):
+        global parsable_docs
+
+        if new_item not in list(dict(parsable_docs).keys()):
+            parsable_docs[new_item] = "" #TODO request will be generate
+
+            self.sendHttpRequest(new_item)
+
+    def addUrlToTable(self, event):
+        global parsable_docs
+
+        text = str(self.text_field.getText())
+
+        if not isValidSwaggerDoc(text):
+            return
+
+        self.addToParcableDocsDict(text)
+        self.syncTables()
+
+        self.text_field.setText("")
+        self.text_field.requestFocus()
+
+    def removeSelectedItems(self, event):
+        global parsable_docs
+
+        selected_rows = list(self.table.getSelectedRows())
+        table_model = self.table.getModel()
+        table_changed = False
+
+        for row in selected_rows:
+            value = table_model.getValueAt(row, 0)
+            if value in parsable_docs.keys():
+                del parsable_docs[value]
+                table_changed = True
+
+
+        if table_changed:
+            self.syncTables()
+
+
+
+    def clearTable(self, event):
+        global parsable_docs
+        parsable_docs = {}
+        self.syncTables()
+        self.text_field.requestFocus()
+
+
+    def getComboboxItems(self):
+        global parsable_docs
+        return sorted(list(dict(parsable_docs).keys()))
 
     def getSelectedComboboxItem(self, event):
         global parsable_docs_combobox
@@ -422,35 +828,76 @@ class SwaggerParserTab(ITab):
         global history_table
         global output_scroll_pane
         global parsable_docs_combobox
+        global request_detail_text_editor
+        global tabbedPane
+        global tabbedPane2
+        global main_panel
 
         main_panel = JPanel()
+        main_panel.addComponentListener(ResizeListener())
         layout = GroupLayout(main_panel)
         main_panel.setLayout(layout)
         layout.setAutoCreateGaps(True)
         layout.setAutoCreateContainerGaps(True)
 
-        header_label = JLabel("Custom Headers")
+        header_label = JLabel("Swagger Docs: ")
         header_text_editor = JTextPane()
         header_text_editor.setText("X-Forwarded-For: 127.0.0.1\nAuthorization: Bearer [TOKEN]")
         header_scroll_pane = JScrollPane(header_text_editor)
+
+        request_detail_text_editor = JTextPane()
+        request_detail_text_editor.setText("")
+        request_detail_scroll_pane = JScrollPane(request_detail_text_editor)
+
+
+
+        tabbedPane = JTabbedPane()
+
+        tabbedPane.addTab("Custom Headers", header_scroll_pane)
+        tabbedPane.addTab("Request Detail", request_detail_scroll_pane)
+
+
 
         output_label = JLabel("")
         output_text_editor = JTextPane()
         output_scroll_pane = JScrollPane(output_text_editor)
 
+        tabbedPane2 = JTabbedPane()
+
+        tabbedPane2.addTab("Output", output_scroll_pane)
+
         table_model = self.NonEditableTableModel()
-        table_model.addColumn("Request Method")
+        table_model.addColumn("Method")
         table_model.addColumn("URL")
         table_model.addColumn("Status Code")
-        table_model.addColumn("Response Length")
+        table_model.addColumn("Length")
 
         parsable_docs_combobox = JComboBox([])
-        add_button = JButton("Start", actionPerformed=self.getSelectedComboboxItem)
+        add_button = JButton("Start Parsing", actionPerformed=self.getSelectedComboboxItem)
+        add_button2 = JButton("Add New Doc", actionPerformed=self.addNewUrl)
 
         history_table = JTable(table_model)
+
+        column_model = history_table.getColumnModel()
+        column_model.getColumn(0).setMinWidth(80)
+        column_model.getColumn(0).setMaxWidth(80)
+        column_model.getColumn(2).setMinWidth(120)
+        column_model.getColumn(2).setMaxWidth(120)
+        column_model.getColumn(3).setMinWidth(80)
+        column_model.getColumn(3).setMaxWidth(80)
+
         history_scroll_pane = JScrollPane(history_table)
 
         history_table.addMouseListener(TableMenuClickListener(self, history_table))
+
+        input_map = history_table.getInputMap()
+        action_map = history_table.getActionMap()
+
+        input_map.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "Up")
+        action_map.put("Up", MoveAction(history_table, -1))
+
+        input_map.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "Down")
+        action_map.put("Down", MoveAction(history_table, 1))
 
         screen_size = Toolkit.getDefaultToolkit().getScreenSize()
         screen_height = screen_size.getHeight()
@@ -459,11 +906,17 @@ class SwaggerParserTab(ITab):
         output_components_max_height = int(screen_height / 3)
         output_components_max_width = int(screen_width / 2)
 
-        header_scroll_pane.setMaximumSize(
-            Dimension(output_components_max_width, output_components_max_height))
-        output_scroll_pane.setMaximumSize(Dimension(output_components_max_width, output_components_max_height))
+        tabbedPane.setMinimumSize(
+            Dimension(output_components_max_width - 10, output_components_max_height))
 
-        output_text_editor.setPreferredSize(Dimension(output_components_max_width, output_components_max_height))
+        tabbedPane.setMaximumSize(
+            Dimension(output_components_max_width - 10, output_components_max_height))
+
+        tabbedPane2.setMinimumSize(
+            Dimension(output_components_max_width - 10, output_components_max_height - 2))
+
+        tabbedPane2.setMaximumSize(
+            Dimension(output_components_max_width - 10, output_components_max_height - 2))
 
 
         layout.setHorizontalGroup(
@@ -472,10 +925,11 @@ class SwaggerParserTab(ITab):
                       .addComponent(header_label)
                       .addComponent(parsable_docs_combobox)
                       .addComponent(add_button)
+                      .addComponent(add_button2)
                       .addComponent(output_label))
             .addGroup(layout.createSequentialGroup()
-                      .addComponent(header_scroll_pane)
-                      .addComponent(output_scroll_pane))
+                      .addComponent(tabbedPane)
+                      .addComponent(tabbedPane2))
             .addComponent(history_scroll_pane)
         )
 
@@ -485,10 +939,11 @@ class SwaggerParserTab(ITab):
                       .addComponent(header_label)
                       .addComponent(parsable_docs_combobox)
                       .addComponent(add_button)
+                      .addComponent(add_button2)
                       .addComponent(output_label))
             .addGroup(layout.createParallelGroup(GroupLayout.Alignment.BASELINE)
-                      .addComponent(header_scroll_pane)
-                      .addComponent(output_scroll_pane))
+                      .addComponent(tabbedPane)
+                      .addComponent(tabbedPane2))
             .addComponent(history_scroll_pane)
         )
 
@@ -575,18 +1030,13 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, IProxyListener):
             headers = analyzedResponse.getHeaders()
             responseBody = response[analyzedResponse.getBodyOffset():].tostring()
 
-            if ("swagger" in responseBody or "openapi" in responseBody) and "paths" in responseBody and "info" in responseBody and (doc_url.endswith(".json") or "api-docs" in doc_url or doc_url.endswith("swagger-ui-init.js")):
+            if ("swagger" in responseBody or "openapi" in responseBody) and "paths" in responseBody and "info" in responseBody and (doc_url.endswith("json") or "api-docs" in doc_url or doc_url.endswith("swagger-ui-init.js")):
                 parsable_docs[doc_url] = message
 
-                parsable_docs_combobox_item_count = parsable_docs_combobox.getItemCount()
+                parsable_docs_combobox.setModel(DefaultComboBoxModel([]))
+                for doc_item in sorted(list(dict(parsable_docs).keys())):
+                    parsable_docs_combobox.addItem(doc_item)
 
-                if parsable_docs_combobox_item_count == 0:
-                    parsable_docs_combobox.addItem(doc_url)
-                else:
-                    for i in range(parsable_docs_combobox_item_count):
-                        item = str(parsable_docs_combobox.getItemAt(i)).strip()
-                        if item != doc_url:
-                            parsable_docs_combobox.addItem(doc_url)
 
 
 
@@ -778,8 +1228,6 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, IProxyListener):
         global history_table
         global extracted_requests
 
-
-
         table_model = history_table.getModel()
         while table_model.getRowCount() > 0:
             table_model.removeRow(0)
@@ -798,10 +1246,11 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, IProxyListener):
         table_model.addRow(["Loading...", "Loading...", "Loading...", "Loading..."])
 
     def startParseFromUI(self, traffic):
+
         if traffic.getUrl() != None:
             main_url = str(traffic.getUrl().toString())
 
-            if main_url.endswith(".json") or "api-docs" in main_url or main_url.endswith("swagger-ui-init.js"):
+            if isValidSwaggerDoc(main_url):
                 self.resetTable()
                 self.loadingTable()
                 self.loadingOutputEditor()
@@ -838,10 +1287,7 @@ class BurpExtender(IBurpExtender, IContextMenuFactory, IProxyListener):
                 response_headers = response_info.getHeaders()
                 response_body = response.getResponse()[response_info.getBodyOffset():]
 
-
-
                 response_body_str = self.bytesToString(response_body)
-
 
                 table_model = history_table.getModel()
                 row_data = [request_method, request_url, response_info.getStatusCode(), len(response_body_str)]
