@@ -16,7 +16,16 @@ With this extension, you can parse Swagger Documents. You can view the parsed re
 
 **3- If the extension has been installed successfully, the "Swagger Parser" tab will be added. You can see the extension screen by clicking this tab.**
 
-![extension_ui](https://github.com/bulutenes/SwaggerParser-BurpExtension/assets/150332295/bbc9dcd9-18e9-4409-93e6-a962d1f37114)
+<img width="1792" alt="main_screen" src="https://github.com/Trendyol/swagger-parser-burp-extension/assets/150332295/810d11ed-b0a7-4648-a203-41cbb73ea7aa">
+
+**Add New Swagger Document Panel:** This is the part where new Swagger Documents are added and edited.
+
+<img width="1226" alt="add_new_doc" src="https://github.com/Trendyol/swagger-parser-burp-extension/assets/150332295/70c86d11-9900-4216-ab56-2def027ad3da">
+
+
+**Request Detail Panel:** This is the section where the details of the parsed requests are displayed.
+
+<img width="896" alt="request_detail" src="https://github.com/Trendyol/swagger-parser-burp-extension/assets/150332295/ce5a46d7-5782-4be3-9ec7-306f47dfb280">
 
 
 **Custom Headers Panel:** Headers written below in this panel are added to all requests while parsing.
