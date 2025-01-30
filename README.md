@@ -1,3 +1,5 @@
+
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Trendyol/swagger-parser-burp-extension/badge)](https://scorecard.dev/viewer/?uri=github.com/Trendyol/swagger-parser-burp-extension)
 # SwaggerParser-BurpExtension
 
 With this extension, you can parse Swagger Documents. You can view the parsed requests in the table and send them to Repeater, Intruder, Scanner.
